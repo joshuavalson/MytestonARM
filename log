@@ -1,0 +1,362 @@
+ECE561/Project 4 - Multithreaded Game Project/Mailbox Test Code/lst/RTX_Config.lst
+
+/*----------------------------------------------------------------------------
+ *      RL-ARM - RTX
+ *----------------------------------------------------------------------------
+ *      Name:    RTX_CONFIG.C
+ *      Purpose: Configuration of RTX Kernel for TI TMS570
+ *      Rev.:    V4.20
+ *----------------------------------------------------------------------------
+ *      This code is part of the RealView Run-Time Library.
+ *      Copyright (c) 2004-2011 KEIL - An ARM Company. All rights reserved.
+ *---------------------------------------------------------------------------*/
+
+#include "RTL.h"
+#include "Device_header.h"                       /* TMS570 definitions              */
+#include "sys_vim.h" 
+#include "rti.h" 
+#include "reg_system.h" 
+/*----------------------------------------------------------------------------
+ *      RTX User configuration part BEGIN
+ *---------------------------------------------------------------------------*/
+
+//-------- <<< Use Configuration Wizard in Context Menu >>> -----------------
+//
+// <h>Task Configuration
+// =====================
+//
+//   <o>Number of concurrent running tasks <0-250>
+//   <i> Define max. number of tasks that will run at the same time.
+//   <i> Default: 6
+#ifndef OS_TASKCNT
+ #define OS_TASKCNT     7
+#endif
+
+//   <o>Number of tasks with user-provided stack <0-250>
+//   <i> Define the number of tasks that will use a bigger stack.
+//   <i> The memory space for the stack is provided by the user.
+//   <i> Default: 0
+#ifndef OS_PRIVCNT
+ #define OS_PRIVCNT     0
+#endif
+
+//   <o>Task stack size [bytes] <20-4096:8><#/4>
+//   <i> Set the stack size for tasks which is assigned by the system.
+//   <i> Default: 500
+#ifndef OS_STKSIZE
+ #define OS_STKSIZE     128
+#endif
+
+// <q>Check for the stack overflow
+// ===============================
+// <i> Include the stack checking code for a stack overflow.
+// <i> Note that additional code reduces the RTX performance.
+#ifndef OS_STKCHECK
+ #define OS_STKCHECK    1
+#endif
+
+// <q>Run in privileged mode
+// =========================
+// <i> Run all Tasks in privileged (SYS) mode.
+// <i> Default: Unprivileged (USER)
+#ifndef OS_RUNPRIV
+ #define OS_RUNPRIV     1
+#endif
+
+// </h>
+// <h>Tick Timer Configuration
+// =============================
+//   <o>Hardware timer <0=> RTI-Block 0 <1=> RTI-Block 1
+//   <i> Define the on-chip timer used as a time-base for RTX.
+//   <i> Default: RTI-Block 0
+#ifndef OS_TIMER
+ #define OS_TIMER       0
+#endif
+
+//   <o>Timer clock value [Hz] <1-1000000000>
+//   <i> Set the timer clock value for selected timer.
+//   <i> Default: 80000000  (80 MHz)
+#ifndef OS_CLOCK
+ #define OS_CLOCK       110000000
+#endif
+
+//   <o>Timer tick value [us] <1-1000000>
+//   <i> Set the timer tick value for selected timer.
+//   <i> Default: 10000  (10ms)
+#ifndef OS_TICK
+ #define OS_TICK        10
+#endif
+
+// </h>
+
+// <h>System Configuration
+// =======================
+// <e>Round-Robin Task switching
+// =============================
+// <i> Enable Round-Robin Task switching.
+#ifndef OS_ROBIN
+ #define OS_ROBIN       1
+#endif
+
+//   <o>Round-Robin Timeout [ticks] <1-1000>
+//   <i> Define how long a task will execute before a task switch.
+//   <i> Default: 5
+#ifndef OS_ROBINTOUT
+ #define OS_ROBINTOUT   5
+#endif
+
+// </e>
+
+//   <o>Number of user timers <0-250>
+//   <i> Define max. number of user timers that will run at the same time.
+//   <i> Default: 0  (User timers disabled)
+#ifndef OS_TIMERCNT
+ #define OS_TIMERCNT    0
+#endif
+
+//   <o>ISR FIFO Queue size<4=>   4 entries  <8=>   8 entries
+//                         <12=> 12 entries  <16=> 16 entries
+//                         <24=> 24 entries  <32=> 32 entries
+//                         <48=> 48 entries  <64=> 64 entries
+//                         <96=> 96 entries
+//   <i> ISR functions store requests to this buffer,
+//   <i> when they are called from the IRQ handler.
+//   <i> Default: 16 entries
+#ifndef OS_FIFOSZ
+ #define OS_FIFOSZ      16
+#endif
+
+// </h>
+
+
+//------------- <<< end of configuration section >>> -----------------------
+
+// Standard library system mutexes
+// ===============================
+//  Define max. number system mutexes that are used to protect 
+//  the arm standard runtime library. For microlib they are not used.
+#ifndef OS_MUTEXCNT
+ #define OS_MUTEXCNT    8
+#endif
+
+/*----------------------------------------------------------------------------
+ *      RTX User configuration part END
+ *---------------------------------------------------------------------------*/
+
+#define pRTI            ((rtiBASE_t *)rtiREG1) //changed
+#define pVIM            ((vimBASE_t *)vimREG) //changed
+#define pVIM_RAM        ((vimRAM_t *)VIMRAMLOC) //changed
+#define pSYS            systemREG1 //changed
+
+#if   (OS_TIMER == 0)                                 /* RTI Counter Block 0 */
+ #define CB_            0
+ #define RTICPUCx_UL    CNT[0].CPUCx //changed
+#elif (OS_TIMER == 1)                                 /* RTI Counter Block 1 */ 
+ #define CB_            1
+ #define RTICPUCx_UL    CNT[1].CPUCx //changed
+#else
+ #error OS_TIMER invalid
+#endif
+
+#define OS_TIM_         (1<<21) | (1<<2)                /* Interrupt Mask   */
+#define OS_TRV          ((U32)(((double)OS_CLOCK*(double)OS_TICK)/1E6)-1)
+#define OS_TVAL         pRTI->CNT[0].CPUCx               /* Timer Value      */ //changed
+                                                        /* Overflow Flag    */
+#define OS_TOVF         (pRTI->INTFLAG) = 1 //changed
+#define OS_TFIRQ()      pSYS->SSISR1        = 0x7500;   /* Force Interrupt  */
+#define OS_TIACK()      pSYS->SSIF          = 0x01;     /* Interrupt Ack    */ \
+                        pRTI->INTFLAG &= 1;   //changed
+#define OS_TINIT()      pVIM_RAM->ISR[2+1]  =           /* Initialization   */ 		\
+                        pVIM_RAM->ISR[21+1] = (t_isrFuncPTR)os_clock_interrupt;   \
+                        pRTI->RTICPUCx_UL   = OS_TRV;                             \
+                        pRTI->CMP[0].COMPx   = 1;   /*changed */                  \
+                        pRTI->CMP[0].UDCPx    = 1;   /*changed */                 \
+                        pRTI->COMPCTRL = CB_; /*changed */ 											\
+                        pRTI->SETINTENA = 1;  /*changed */      									\
+                        pRTI->GCTRL   |= (1 << CB_); /*changed */ 
+
+#define OS_LOCK()       pVIM->REQMASKCLR0 = OS_TIM_; /* Task Lock        */
+#define OS_UNLOCK()     pVIM->REQMASKSET0 = OS_TIM_; /* Task Unlock      */
+
+
+/*----------------------------------------------------------------------------
+ *      Global Functions
+ *---------------------------------------------------------------------------*/
+
+/*--------------------------- os_idle_demon ---------------------------------*/
+
+__task void os_idle_demon (void) {
+  /* The idle demon is a system task, running when no other task is ready */
+  /* to run. The 'os_xxx' function calls are not allowed from this task.  */
+
+  for (;;) {
+  /* HERE: include optional user code to be executed when no task runs.*/
+  }
+}
+
+
+/*--------------------------- os_tmr_call -----------------------------------*/
+
+void os_tmr_call (U16 info) {
+  /* This function is called when the user timer has expired. Parameter  */
+  /* 'info' holds the value, defined when the timer was created.         */
+
+  /* HERE: include optional user code to be executed on timeout. */
+}
+
+
+/*--------------------------- os_error --------------------------------------*/
+
+void os_error (U32 err_code) {
+  /* This function is called when a runtime error is detected. Parameter */
+  /* 'err_code' holds the runtime error code (defined in RTL.H).         */
+
+  /* HERE: include optional code to be executed on runtime error. */
+  for (;;);
+}
+
+
+/*----------------------------------------------------------------------------
+ *      RTX Configuration Functions
+ *---------------------------------------------------------------------------*/
+
+
+#include "RTX_lib.c"
+
+/*----------------------------------------------------------------------------
+ * end of file
+ *---------------------------------------------------------------------------*/
+//#include "RT_Agent.c"
+
+//void rt_init (void) {
+
+//  RTA_Init ();
+
+//}
+
+
+/** @file sys_main.c 
+*   @brief Application main file
+*   @date 28.Aug.2015
+*   @version 04.05.01
+*
+*   This file contains an empty main function,
+*   which can be used for the application.
+*/
+
+/* 
+* Copyright (C) 2009-2015 Texas Instruments Incorporated - www.ti.com 
+* 
+* 
+*  Redistribution and use in source and binary forms, with or without 
+*  modification, are permitted provided that the following conditions 
+*  are met:
+*
+*    Redistributions of source code must retain the above copyright 
+*    notice, this list of conditions and the following disclaimer.
+*
+*    Redistributions in binary form must reproduce the above copyright
+*    notice, this list of conditions and the following disclaimer in the 
+*    documentation and/or other materials provided with the   
+*    distribution.
+*
+*    Neither the name of Texas Instruments Incorporated nor the names of
+*    its contributors may be used to endorse or promote products derived
+*    from this software without specific prior written permission.
+*
+*  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS 
+*  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT 
+*  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+*  A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT 
+*  OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, 
+*  SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT 
+*  LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+*  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+*  THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT 
+*  (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE 
+*  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*
+*/
+
+
+/* USER CODE BEGIN (0) */
+/* USER CODE END */
+
+/* Include Files */
+
+#include "sys_common.h"
+
+/* USER CODE BEGIN (1) */
+#include "het.h"
+#include "RTL.h"
+#include "rti.h"
+/* USER CODE END */
+
+/** @fn void main(void)
+*   @brief Application main function
+*   @note This function is empty by default.
+*
+*   This function is called after startup.
+*   The user can use this function to implement the application.
+*/
+
+/* USER CODE BEGIN (2) */
+/* id1, id2 will contain task identifications at run-time */
+OS_TID id1, id2;
+/* Forward declaration of tasks. */
+__task void task1 (void);
+__task void task2 (void);
+
+
+__task void task1 (void){
+			hetInit();
+		 /* Obtain own system task identification number */
+		 id1 = os_tsk_self();
+		 /* Create task2 and obtain its task identification number */
+		 id2 = os_tsk_create (task2, 0);
+		 for (;;) {
+				 /* ... place code for task1 activity here ... */
+				 /* Signal to task2 that task1 has compelted */
+				 os_evt_set(0x0004, id2);
+				 /* Wait for completion of task2 activity. */
+				 /* 0xFFFF makes it wait without timeout. */
+				 /* 0x0004 represents bit 2. */
+				 os_evt_wait_or(0x0004, 0xFFFF);
+				 /* Wait for 50 ms before restarting task1 activity. */
+				 os_dly_wait(5);
+		 }
+}
+
+__task void task2 (void) {
+		 for (;;) {
+				 /* Wait for completion of task1 activity. */
+				 /* 0xFFFF makes it wait without timeout. */
+				 /* 0x0004 represents bit 2. */
+				 os_evt_wait_or(0x0004, 0xFFFF);
+				 /* Wait for 20 ms before starting task2 activity. */
+				 os_dly_wait(2);
+				 /* ... place code for task2 activity here ... */
+				 /* Signal to task1 that task1 has compelted */
+				 os_evt_set(0x0004, id1);
+		 }
+}
+/* USER CODE END */
+#pragma diag_suppress=951
+
+uint8	emacAddress[6U] = 	{0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU};
+uint32 	emacPhyAddress	=	0U;
+
+void main(void)
+{
+/* USER CODE BEGIN (3) */
+	//uint32 pd;
+	rtiInit();
+	rtiStartCounter(0);
+	//pd=
+	os_sys_init (task1); 
+	//hetInit();
+/* USER CODE END */
+}
+
+/* USER CODE BEGIN (4) */
+/* USER CODE END */
